@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y \
   build-essential
 
 WORKDIR /src
-RUN git clone -b v1.3.2 https://github.com/Rose-Rocketry/mosquitto.rsmb .
+RUN git clone -b v1.3.2 --depth 1 --single-branch https://github.com/Rose-Rocketry/mosquitto.rsmb .
 WORKDIR /src/rsmb/src
 RUN make broker_mqtts
 

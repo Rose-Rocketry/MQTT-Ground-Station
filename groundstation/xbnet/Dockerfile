@@ -1,7 +1,7 @@
 FROM rust:1-slim-buster as build
 RUN apt-get update && apt-get install -y git
 WORKDIR /src
-RUN git clone -b v1.2.0-2 https://github.com/Rose-Rocketry/xbnet .
+RUN git clone -b v1.2.0-2 --depth 1 --single-branch https://github.com/Rose-Rocketry/xbnet .
 RUN cargo build --release
 
 FROM debian:buster-slim
