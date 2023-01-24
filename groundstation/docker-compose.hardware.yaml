@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  xbnet:
+    build: xbnet
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyxbnet"
+    # Steam the rsmb hostname since the rsmb container is using our network namespace
+    networks:
+      default:
+        aliases:
+          - rsmb
+    restart: always
+  rsmb:
+    # Share a network namespace with xbnet so that we can use it's interface
+    network_mode: service:xbnet
+    command: rsmb /etc/rsmb.hardware.conf
+    depends_on:
+      - xbnet
