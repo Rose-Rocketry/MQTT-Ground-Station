@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  xbnet:
+    build: xbnet
+  rsmb:
+    build: rsmb
+  logger:
+    build: logger
+  rf_control:
+    build: rf/control
+  rf_direwolf:
+    build: rf/direwolf
+  rf_sdr:
+    build: rf/sdr
