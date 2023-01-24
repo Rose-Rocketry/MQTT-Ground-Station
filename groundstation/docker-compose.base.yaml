@@ -6,9 +6,11 @@ services:
     restart: always
   # logger:
   #   build: logger
-  # rf_control:
+  # rf-control:
   #   build: rf/control
-  # rf_direwolf:
-  #   build: rf/direwolf
-  # rf_sdr:
+  rf-direwolf:
+    build: rf/direwolf
+    restart: always
+    stop_signal: SIGINT
+  # rf-sdr:
   #   build: rf/sdr

@@ -19,3 +19,5 @@ services:
     command: rsmb /etc/rsmb.hardware.conf
     depends_on:
       - xbnet
+  rf-direwolf:
+    command: direwolf -c /etc/direwolf.hardware.conf
