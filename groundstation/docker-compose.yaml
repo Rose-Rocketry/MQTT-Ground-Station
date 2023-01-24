@@ -1,15 +1,20 @@
 version: "3.9"
 
 services:
-  xbnet:
-    build: xbnet
+  # xbnet:
+  #   build: xbnet
+  #   network_mode: host
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #     - "/dev/ttyUSB0:/dev/ttyxbnet"
   rsmb:
     build: rsmb
-  logger:
-    build: logger
-  rf_control:
-    build: rf/control
-  rf_direwolf:
-    build: rf/direwolf
-  rf_sdr:
-    build: rf/sdr
+  # logger:
+  #   build: logger
+  # rf_control:
+  #   build: rf/control
+  # rf_direwolf:
+  #   build: rf/direwolf
+  # rf_sdr:
+  #   build: rf/sdr
