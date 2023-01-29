@@ -3,6 +3,7 @@ version: "3.9"
 services:
   xbnet:
     build: xbnet
+    privileged: true
     cap_add:
       - NET_ADMIN
     devices:
@@ -18,6 +19,7 @@ services:
     network_mode: service:xbnet
     command: rsmb /etc/rsmb.hardware.conf
     depends_on:
-      - xbnet
-  rf-direwolf:
-    command: direwolf -c /etc/direwolf.hardware.conf
+      xbnet:
+        condition: service_healthy
+  # rf-direwolf:
+  #   command: direwolf -c /etc/direwolf.hardware.conf
