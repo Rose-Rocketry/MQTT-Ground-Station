@@ -5,6 +5,7 @@ RUN git clone -b v1.2.0-2 --depth 1 --single-branch https://github.com/Rose-Rock
 RUN cargo build --release
 
 FROM debian:buster-slim
+RUN apt-get update && apt-get install -y iproute2
 COPY --from=build /src/target/release/xbnet /bin/xbnet
 COPY xb-initfile.txt /etc/xb-initfile.txt
 
