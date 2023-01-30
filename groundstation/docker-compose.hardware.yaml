@@ -13,6 +13,8 @@ services:
       default:
         aliases:
           - rsmb
+    ports:
+      - 1883:1883 # Forward RSMB for testing
     restart: always
   rsmb:
     # Share a network namespace with xbnet so that we can use it's interface
