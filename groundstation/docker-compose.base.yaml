@@ -1,6 +1,11 @@
 version: "3.9"
 
 services:
+  dashboard:
+    build: dashboard
+    restart: always
+    ports:
+      - 5000:5000
   rsmb:
     build: rsmb
     restart: always
