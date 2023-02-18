@@ -1,104 +1,246 @@
 <script setup lang="ts">
-import StatusHeader from './components/StatusHeader.vue'
-import SensorView from './components/SensorView.vue';
-import { onUnmounted, reactive, ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
-import type { SensorData } from './sensorData'
+import { reactive, ref, toRaw } from 'vue'
+import DashboardView from './components/DashboardView.vue'
+import type { Packet, SensorData } from './protocol'
 
-type ConnectionState = 'connecting' | 'open' | 'error' | 'closed'
+type State = "main" | "loading" | "loaded"
 
-const MAX_STORED_PACKETS_PER_SENSOR = 1000
+const defaultWsURL = `${window.location.protocol.replace("http", "ws")}//${window.location.host}/ws`
+const WS_MAXIMUM_CHANNEL_SAMPLES = 1000
 
-const connectionState = ref<ConnectionState>('connecting')
-const sensorMap = shallowRef(new Map<string, SensorData>())
-const sensorOrder: Ref<string[]> = ref([])
+let state = ref<State>("main")
+let connectionType = ref<"ws" | "file">("ws")
 
-const scheduledRefTriggers = new Set<ShallowRef<any>>()
-function scheduleRefTrigger(ref: ShallowRef) {
-  if (scheduledRefTriggers.has(ref)) {
+let wsInput = ref(defaultWsURL)
+let wsError = ref(false)
+let wsConnection: WebSocket
+
+let fileLoadPercent = ref(0)
+
+function connectTo(url: string) {
+  state.value = "loading"
+  connectionType.value = "ws"
+  wsError.value = false
+  resetSensors()
+
+  wsConnection = new WebSocket(url)
+  wsConnection.onerror = (e) => {
+    state.value = "main";
+    wsError.value = true;
+  }
+  wsConnection.onopen = (e) => state.value = 'loaded'
+  wsConnection.onmessage = (e) => handlePacket(JSON.parse(e.data))
+  wsConnection.onclose = (e) => state.value = 'main'
+}
+
+async function loadFile() {
+  const input = document.getElementById("fileInput") as HTMLInputElement
+  const file = input.files?.[0];
+  if (!file) {
     return
   }
-  scheduledRefTriggers.add(ref)
-  requestAnimationFrame(() => {
-    scheduledRefTriggers.delete(ref)
-    triggerRef(ref)
-  })
-}
 
-function onOpen(e: Event) {
-  connectionState.value = 'open';
-}
-function onClose(e: Event) {
-  if (connectionState.value != 'error') {
-    connectionState.value = 'closed';
-  }
-}
-function onError(e: Event) {
-  connectionState.value = 'error';
-}
-function onMessage(e: MessageEvent) {
-  const message = JSON.parse(e.data)
-  const id: string = message["id"]
-  const packets = message["packet"]
+  state.value = "loading"
+  connectionType.value = "file"
+  resetSensors()
 
-  if (!sensorMap.value.has(id)) {
-    console.log("New sensor", id)
-    sensorMap.value.set(id, {
-      id, packets: shallowRef(new Array())
+  try {
+    await iterateTextFileLines(file, line => {
+      try {
+        handlePacket(JSON.parse(line))
+      } catch (error) {
+        // TODO: Show warning
+        console.error("Error handing line", line, error)
+      }
+    }, percent => {
+      fileLoadPercent.value = percent
     })
 
-    sensorOrder.value.push(id)
-    sensorOrder.value.sort()
-    scheduleRefTrigger(sensorMap.value.get(id)!.packets)
-    scheduleRefTrigger(sensorMap)
+    state.value = "loaded"
+  } catch (error) {
+    console.error(error);
+    state.value = "main"
   }
-  const sensorData = sensorMap.value.get(id)!
-
-  sensorData.packets.value.push(packets)
-  if(sensorData.packets.value.length > MAX_STORED_PACKETS_PER_SENSOR){
-    sensorData.packets.value.shift()
-  }
-  scheduleRefTrigger(sensorData.packets)
 }
 
-// TODO: Configure url or host on same port as client
-// const connection = new WebSocket('ws://127.0.0.1:5000/ws')
-const connection = new WebSocket(`ws://${location.host}/ws`)
+// Based on code from https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read
+async function iterateTextFileLines(file: File, cb: (line: string) => void, progress: (percent: number) => void) {
+  const utf8Decoder = new TextDecoder("utf-8");
 
-connection.addEventListener('open', onOpen)
-connection.addEventListener('close', onClose)
-connection.addEventListener('error', onError)
-connection.addEventListener('message', onMessage)
+  let reader = file.stream().getReader();
+  let bytesTotal = file.size
+  let { value: chunkRaw, done: readerDone } = await reader.read();
+  let bytesRead = chunkRaw?.length ?? 0
+  let chunk = chunkRaw ? utf8Decoder.decode(chunkRaw, { stream: true }) : "";
 
-onUnmounted(() => {
-  console.log("App unmounted, closing existing connection")
-  connection.removeEventListener('open', onOpen)
-  connection.removeEventListener('close', onClose)
-  connection.removeEventListener('error', onError)
-  connection.removeEventListener('message', onMessage)
-  connection.close()
-})
+  let startIndex = 0;
+
+  while (true) {
+    let lnIndex = chunk.indexOf("\n", startIndex);
+    if (lnIndex < 0) {
+      if (readerDone) {
+        break;
+      }
+      let remainder = chunk.substring(startIndex);
+      ({ value: chunkRaw, done: readerDone } = await reader.read());
+      bytesRead += chunkRaw?.length ?? 0
+      progress(bytesRead / bytesTotal * 100)
+      chunk = remainder + (chunkRaw ? utf8Decoder.decode(chunkRaw, { stream: true }) : "");
+      startIndex = 0;
+      continue;
+    }
+    cb(chunk.substring(startIndex, lnIndex));
+    startIndex = lnIndex + 1;
+  }
+  if (startIndex < chunk.length) {
+    // last line didn't end in a newline char
+    cb(chunk.substring(startIndex));
+  }
+}
+
+
+let sensorOrder = ref<string[]>([])
+let sensorMap = reactive(new Map<string, SensorData>())
+
+function resetSensors() {
+  sensorOrder.value = []
+  sensorMap.clear()
+}
+
+function handlePacket(packet: Packet) {
+  if (typeof packet.id != "string") {
+    console.warn("Packet has no id", packet)
+    return
+  }
+  const id = packet.id
+
+  if (!sensorOrder.value.includes(id)) {
+    sensorOrder.value.push(id)
+    sensorOrder.value.sort()
+  }
+
+  if ('meta' in packet) {
+    let sensor = sensorMap.get(id)
+    if (!sensor) {
+      console.log("New sensor", id)
+      // New sensor
+      sensor = {
+        id,
+        meta: null!,
+        channelMap: new Map(),
+      };
+      sensorMap.set(id, sensor);
+    }
+    sensor.meta = packet.meta!
+    sensor.channelOrder = sensor.meta.channels.map(ch => ch.key)
+
+    for (const ch of sensor.meta.channels) {
+      const channel = sensor.channelMap.get(ch.key)
+      if (channel) {
+        // Existing channel
+        channel.meta = ch;
+      } else {
+        // New channel
+        sensor.channelMap.set(ch.key, {
+          meta: ch,
+          series: [],
+          timestamps: []
+        })
+      }
+    }
+  }
+
+  if ('data' in packet) {
+    let sensor = sensorMap.get(id)
+
+    if (!('timestamp' in packet.data)) {
+      console.warn("Packet missing timestamp", packet)
+      return
+    }
+
+    if (!sensor) {
+      // No metadata, guess
+      sensor = {
+        id: id,
+        channelMap: new Map()
+      }
+      sensorMap.set(id, sensor);
+    }
+
+    for (const key in packet.data) {
+      if (key == "timestamp") continue
+
+      let channel = sensor.channelMap.get(key)
+      if (!channel) {
+        channel = {
+          timestamps: [],
+          series: [],
+        }
+        sensor.channelMap.set(key, channel)
+      }
+
+      let data = packet.data[key]
+      if (!Array.isArray(data)) {
+        data = [data]
+      }
+      // channel.timestamps.push(new Date(packet.data.timestamp))
+      channel.timestamps.push(packet.data.timestamp)
+
+      if (connectionType.value == "ws" && channel.timestamps.length > WS_MAXIMUM_CHANNEL_SAMPLES) {
+        channel.timestamps.shift()
+        channel.series.map(x => x.shift())
+      }
+
+      const sampleI = channel.timestamps.length - 1
+      for (let seriesI = 0; seriesI < data.length; seriesI++) {
+        let list = channel.series[seriesI] ?? []
+        list[sampleI] = data[seriesI]
+        channel.series[seriesI] = list
+      }
+    }
+  }
+}
 </script>
 
 <template>
-  <header>
-    <StatusHeader v-if="connectionState == 'connecting'" title="Connecting to server..." />
-    <StatusHeader v-if="connectionState == 'closed'" title="Connection closed by server" />
-    <StatusHeader v-if="connectionState == 'error'" title="Error connecting to server" />
-    <StatusHeader v-if="connectionState == 'open'" title="Connected to server" />
-  </header>
-
-  <main v-if="connectionState == 'open'">
-    <template v-for="sensorId in sensorOrder" :key="sensorId">
-      <hr>
-      <SensorView :data="sensorMap.get(sensorId)!"></SensorView>
-    </template>
-    <hr>
-    <h1 v-if="sensorOrder.length == 0">Waiting for data...</h1>
-</main>
+  <i-layout>
+    <i-layout-content v-if="state == 'main' || state == 'loading'">
+      <i-container>
+        <h1>Rose-Rocketry Dashboard</h1>
+        <i-row>
+          <i-column xl="6">
+            <h2>Connect to rocket</h2>
+            <i-input :plaintext="state == 'loading'" v-model="wsInput" :placeholder="defaultWsURL">
+              <template #append>
+                <i-button :loading="state == 'loading' && connectionType == 'ws'" :disabled="state == 'loading'"
+                  @click="connectTo(wsInput)">Connect</i-button>
+              </template>
+            </i-input>
+            <i-alert v-if="wsError && connectionType == 'ws'" class="_margin-top:1/2" color="danger">
+              <template #icon>
+                <i-icon name="ink-danger" />
+              </template>
+              <p>Error occured connecting to WebSocket</p>
+            </i-alert>
+          </i-column>
+        </i-row>
+        <i-row>
+          <i-column xl="6">
+            <h2>Open flight logs</h2>
+            <i-input :disabled="state == 'loading'" type="file" id="fileInput">
+              <template #append>
+                <i-button :loading="state == 'loading' && connectionType == 'file'" :disabled="state == 'loading'"
+                  @click="loadFile()">Load File</i-button>
+              </template>
+            </i-input>
+            <i-progress v-if="state == 'loading' && connectionType == 'file'">
+              <i-progress-bar color="success" :value="fileLoadPercent"/>
+            </i-progress>
+          </i-column>
+        </i-row>
+      </i-container>
+      <!-- <DashboardView></DashboardView> -->
+    </i-layout-content>
+    <DashboardView v-else :sensorOrder="sensorOrder" :sensorMap="sensorMap" />
+  </i-layout>
 </template>
-
-<style scoped>
-hr {
-  border: 2px solid var(--color-border);
-}
-</style>

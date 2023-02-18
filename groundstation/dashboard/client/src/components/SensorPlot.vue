@@ -1,45 +1,31 @@
 <script setup lang="ts">
-import type { ChannelType } from '@/sensorData';
-import { onMounted, onUpdated, ref, watch, type Ref } from 'vue';
+import { onMounted, ref, watch, type Ref } from 'vue';
 import Plotly from 'plotly.js-dist-min'
+import type { ChannelData } from '@/protocol';
 
 const plotEl = ref<HTMLElement>()
 
 const props = defineProps<{
   channelKey: string,
-  channelType: ChannelType,
-  packets: Ref<any[]>,
+  channel: ChannelData,
 }>()
 
-const vectorNames = ['x', 'y', 'z', 'w']; // TODO: Get from metadata
-
 function getTraces(): Plotly.Data[] {
-  let xValues = props.packets.value.map(packet => new Date(packet['timestamp'] * 1000))
-  let yValues = props.packets.value.map(packet => packet[props.channelKey])
-
-  if (props.channelType == 'number') {
-    return [{
-      x: xValues,
-      y: yValues,
-      mode: 'lines'
-    }]
-  } else if (props.channelType == 'vector') {
-    const names = vectorNames.slice(0, yValues[0].length)
-
-    return names.map((name, i) => ({
-      x: xValues,
-      y: yValues.map(vector => vector[i]),
+  return props.channel.series.map((series, i) => {
+    const data = {
+      x: props.channel.timestamps,
+      y: series,
       mode: 'lines',
-      name: name
-    }))
-  } else {
-    return []
-  }
+      name: props.channel.meta?.components?.[i],
+    };
+
+    return data
+  })
 }
 
 function getLayout(): Partial<Plotly.Layout> {
   return {
-    title: props.channelKey,
+    title: props.channel.meta?.name ?? props.channelKey,
     margin: {
       l: 40,
       r: 40,
@@ -49,6 +35,12 @@ function getLayout(): Partial<Plotly.Layout> {
     xaxis: {
       tickangle: 0
     },
+    yaxis: {
+      ticksuffix: props.channel.meta?.unit,
+      range: props.channel.meta?.minimum != undefined && props.channel.meta?.maximum != undefined
+        ? [props.channel.meta.minimum, props.channel.meta.maximum]
+        : undefined,
+    },
     uirevision: 'true' // Keep user zoom levels when updating data
   }
 }
@@ -57,16 +49,17 @@ onMounted(() => {
   Plotly.newPlot(plotEl.value!, getTraces(), getLayout(), { displayModeBar: false, responsive: true })
 })
 
-watch(props.packets, () => {
+watch(props.channel, () => {
   Plotly.react(plotEl.value!, getTraces(), getLayout())
 })
 </script>
 
-<template><div class="plot" ref="plotEl"></div></template>
+<template>
+  <div class="plot" ref="plotEl"></div>
+</template>
 
 <style scoped>
 .plot {
-  width: 800px;
-  height: 300px;
+  height: 400px;
 }
 </style>
