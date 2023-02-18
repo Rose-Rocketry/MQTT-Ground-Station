@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, toRaw } from 'vue'
 import DashboardView from './components/DashboardView.vue'
+import { DecompressionStream } from "@stardazed/streams-compression";
 import type { Packet, SensorData } from './protocol'
 
 type State = "main" | "loading" | "loaded"
@@ -67,10 +68,31 @@ async function loadFile() {
 async function iterateTextFileLines(file: File, cb: (line: string) => void, progress: (percent: number) => void) {
   const utf8Decoder = new TextDecoder("utf-8");
 
-  let reader = file.stream().getReader();
+
+  let stream: ReadableStream = file.stream()
+
   let bytesTotal = file.size
+  let bytesRead = 0
+
+  let progressTransform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      bytesRead += chunk.length
+      progress(bytesRead / bytesTotal * 100)
+      controller.enqueue(chunk)
+    }
+  })
+
+  stream = stream.pipeThrough(progressTransform)
+
+  let magicBytes = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  if (magicBytes[0] == 0x1f && magicBytes[1] == 0x8b) {
+    console.log("GZIP detected, wrapping in decompress")
+    stream = stream.pipeThrough(new DecompressionStream("gzip"))
+  }
+
+  let reader = stream.getReader()
+
   let { value: chunkRaw, done: readerDone } = await reader.read();
-  let bytesRead = chunkRaw?.length ?? 0
   let chunk = chunkRaw ? utf8Decoder.decode(chunkRaw, { stream: true }) : "";
 
   let startIndex = 0;
@@ -83,8 +105,6 @@ async function iterateTextFileLines(file: File, cb: (line: string) => void, prog
       }
       let remainder = chunk.substring(startIndex);
       ({ value: chunkRaw, done: readerDone } = await reader.read());
-      bytesRead += chunkRaw?.length ?? 0
-      progress(bytesRead / bytesTotal * 100)
       chunk = remainder + (chunkRaw ? utf8Decoder.decode(chunkRaw, { stream: true }) : "");
       startIndex = 0;
       continue;
@@ -234,7 +254,7 @@ function handlePacket(packet: Packet) {
               </template>
             </i-input>
             <i-progress v-if="state == 'loading' && connectionType == 'file'">
-              <i-progress-bar color="success" :value="fileLoadPercent"/>
+              <i-progress-bar color="success" :value="fileLoadPercent" />
             </i-progress>
           </i-column>
         </i-row>
