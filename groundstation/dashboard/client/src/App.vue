@@ -7,7 +7,7 @@ import type { Packet, SensorData } from './protocol'
 type State = "main" | "loading" | "loaded"
 
 const defaultWsURL = `${window.location.protocol.replace("http", "ws")}//${window.location.host}/ws`
-const WS_MAXIMUM_CHANNEL_SAMPLES = 1000
+const HISTORY_LENGTH = 1000
 
 let state = ref<State>("main")
 let connectionType = ref<"ws" | "file">("ws")
@@ -15,6 +15,8 @@ let connectionType = ref<"ws" | "file">("ws")
 let wsInput = ref(defaultWsURL)
 let wsError = ref(false)
 let wsConnection: WebSocket
+let wsHistoryRead = ref(0)
+let wsHistoryLength = ref(0)
 
 let fileLoadPercent = ref(0)
 
@@ -33,7 +35,6 @@ function connectTo(url: string) {
     state.value = "main";
     wsError.value = true;
   }
-  wsConnection.onopen = (e) => state.value = 'loaded'
   wsConnection.onmessage = (e) => handlePacket(JSON.parse(e.data))
   wsConnection.onclose = (e) => state.value = 'main'
 }
@@ -136,6 +137,20 @@ function resetSensors() {
 }
 
 function handlePacket(packet: Packet) {
+  if (state.value == "loading" && connectionType.value == "ws") {
+    if ('initial_history' in packet) {
+      if (packet.initial_history == 0) {
+        state.value = "loaded"
+        return
+      } else {
+        wsHistoryLength.value = packet.initial_history!
+        return
+      }
+    }
+
+    wsHistoryRead.value++
+  }
+
   if (typeof packet.id != "string") {
     console.warn("Packet has no id", packet)
     return
@@ -146,6 +161,7 @@ function handlePacket(packet: Packet) {
     sensorOrder.value.push(id)
     sensorOrder.value.sort()
   }
+
 
   if ('meta' in packet) {
     let sensor = sensorMap.get(id)
@@ -213,7 +229,7 @@ function handlePacket(packet: Packet) {
       }
       channel.timestamps.push(new Date(packet.data.timestamp * 1000))
 
-      if (connectionType.value == "ws" && channel.timestamps.length > WS_MAXIMUM_CHANNEL_SAMPLES) {
+      if (connectionType.value == "ws" && channel.timestamps.length > HISTORY_LENGTH) {
         channel.timestamps.shift()
         channel.series.map(x => x.shift())
       }
@@ -244,6 +260,9 @@ function handlePacket(packet: Packet) {
                   @click="connectTo(wsInput)">Connect</i-button>
               </template>
             </i-input>
+            <i-progress v-if="state == 'loading' && connectionType == 'ws'">
+              <i-progress-bar color="success" :value="100 * wsHistoryRead / wsHistoryLength" />
+            </i-progress>
             <i-alert v-if="wsError && connectionType == 'ws'" class="_margin-top:1/2" color="danger">
               <template #icon>
                 <i-icon name="ink-danger" />

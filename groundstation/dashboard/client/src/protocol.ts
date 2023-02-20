@@ -4,6 +4,7 @@ export interface Packet {
   id: string
   meta?: Metadata
   data?: any
+  initial_history?: number
 }
 
 export interface Metadata {

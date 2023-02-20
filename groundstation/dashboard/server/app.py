@@ -1,4 +1,5 @@
 from quart import Quart, websocket
+from collections import deque
 import asyncio
 import paho.mqtt.client as mqtt
 import logging
@@ -7,6 +8,11 @@ import json
 logging.basicConfig(level=logging.INFO)
 
 TOPIC_PREFIX = "sensors/"
+
+HISTORY_LENGTH = 1000
+history_meta: dict[str, dict] = dict()
+history_data: dict[str, deque[dict]] = dict()
+new_data: asyncio.Future = None
 
 app = Quart(__name__, static_folder="dist", static_url_path="")
 
@@ -18,18 +24,34 @@ async def ws() -> None:
     ), "not using default loop!"
     await websocket.accept()
 
+    est_history_length = sum(len(q) for q in history_data.values()) + len(history_meta)
+    await websocket.send_json({
+        "initial_history": est_history_length
+    })
+
     app.logger.info(
-        f"New connection from {websocket.remote_addr}, sending {len(data)} queued packets"
+        f"New connection from {websocket.remote_addr}, sending {est_history_length} history packets"
     )
 
-    i = 0
-    while True:
-        while len(data) <= i:
-            # Prevent closed connections from interfering with each other
-            await asyncio.shield(new_data)
+    if est_history_length > 0:
+        for packet in history_meta.values():
+            await websocket.send(packet)
 
-        await websocket.send(data[i])
-        i += 1
+        for sensor in history_data.values():
+            # This list conversion prevents the error "RuntimeError: deque mutated during iteration"
+            # It may cause the client to loose a few packets if they load too slowly
+            for packet in list(sensor): 
+                await websocket.send(packet)
+                
+
+        await websocket.send_json({
+            "initial_history": 0
+        })
+
+    while True:
+        # TODO: Send History
+
+        await websocket.send(await asyncio.shield(new_data))
 
 
 @app.get("/")
@@ -38,9 +60,6 @@ async def root():
 
 
 client = mqtt.Client("dashboard", clean_session=True)
-data = []
-new_data: asyncio.Future = None
-
 
 def on_mqtt_message(client, _, message: mqtt.MQTTMessage):
     id = message.topic.removeprefix(TOPIC_PREFIX)
@@ -55,7 +74,9 @@ def on_mqtt_message(client, _, message: mqtt.MQTTMessage):
         return
 
     if "id" in decoded:
-        logging.warn(f"Packet already has id key, will be overwritten from {repr(decoded['id'])} to {repr(id)}")
+        logging.warn(
+            f"Packet already has id key, will be overwritten from {repr(decoded['id'])} to {repr(id)}"
+        )
         return
 
     # Add ID to messages to distinguish sensors
@@ -63,14 +84,22 @@ def on_mqtt_message(client, _, message: mqtt.MQTTMessage):
     ws_message = json.dumps(decoded)
 
     loop = new_data.get_loop()
-    loop.call_soon_threadsafe(publish_message, ws_message)
+    loop.call_soon_threadsafe(publish_message, ws_message, id, "meta" in decoded)
 
 
-def publish_message(ws_message):
+def publish_message(ws_message, id, is_meta):
     global new_data
 
     # TODO: memory usage grows forever
-    data.append(ws_message)
+    if is_meta:
+        history_meta[id] = ws_message
+    else:
+        q = history_data.get(id)
+        if q == None:
+            q = deque(maxlen=HISTORY_LENGTH)
+            history_data[id] = q
+        q.append(ws_message)
+
     new_data.set_result(ws_message)
     new_data = asyncio.Future()
 
