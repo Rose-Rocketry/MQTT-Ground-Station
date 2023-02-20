@@ -19,6 +19,10 @@ let wsConnection: WebSocket
 let fileLoadPercent = ref(0)
 
 function connectTo(url: string) {
+  if (state.value != "main") {
+    return
+  }
+
   state.value = "loading"
   connectionType.value = "ws"
   wsError.value = false
@@ -35,6 +39,10 @@ function connectTo(url: string) {
 }
 
 async function loadFile() {
+  if (state.value != "main") {
+    return
+  }
+
   const input = document.getElementById("fileInput") as HTMLInputElement
   const file = input.files?.[0];
   if (!file) {
@@ -203,8 +211,7 @@ function handlePacket(packet: Packet) {
       if (!Array.isArray(data)) {
         data = [data]
       }
-      // channel.timestamps.push(new Date(packet.data.timestamp))
-      channel.timestamps.push(packet.data.timestamp)
+      channel.timestamps.push(new Date(packet.data.timestamp * 1000))
 
       if (connectionType.value == "ws" && channel.timestamps.length > WS_MAXIMUM_CHANNEL_SAMPLES) {
         channel.timestamps.shift()
@@ -230,7 +237,8 @@ function handlePacket(packet: Packet) {
         <i-row>
           <i-column xl="6">
             <h2>Connect to rocket</h2>
-            <i-input :plaintext="state == 'loading'" v-model="wsInput" :placeholder="defaultWsURL">
+            <i-input :plaintext="state == 'loading'" v-model="wsInput" @keyup.enter="connectTo(wsInput)"
+              :placeholder="defaultWsURL">
               <template #append>
                 <i-button :loading="state == 'loading' && connectionType == 'ws'" :disabled="state == 'loading'"
                   @click="connectTo(wsInput)">Connect</i-button>

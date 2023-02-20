@@ -3,7 +3,7 @@ version: "3.9"
 services:
   rsmb:
     command: rsmb /etc/rsmb.simulated.conf
-  rf-direwolf:
-    command: direwolf -c /etc/direwolf.simulated.conf
-    devices:
-      - /dev/snd
+  # rf-direwolf:
+  #   command: direwolf -c /etc/direwolf.simulated.conf
+  #   devices:
+  #     - /dev/snd

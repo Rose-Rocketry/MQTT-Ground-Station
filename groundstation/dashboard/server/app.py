@@ -31,6 +31,7 @@ async def ws() -> None:
         await websocket.send(data[i])
         i += 1
 
+
 @app.get("/")
 async def root():
     return await app.send_static_file("index.html")
@@ -45,7 +46,21 @@ def on_mqtt_message(client, _, message: mqtt.MQTTMessage):
     id = message.topic.removeprefix(TOPIC_PREFIX)
 
     decoded = json.loads(message.payload)
-    ws_message = json.dumps({"id": id, "packet": decoded})
+    if type(decoded) != dict:
+        logging.warn(f"Only JSON objects are supported, found {repr(decoded)}")
+        return
+
+    if "data" not in decoded and "meta" not in decoded:
+        logging.warn(f"Packet has neither data nor meta, found {repr(decoded)}")
+        return
+
+    if "id" in decoded:
+        logging.warn(f"Packet already has id key, will be overwritten from {repr(decoded['id'])} to {repr(id)}")
+        return
+
+    # Add ID to messages to distinguish sensors
+    decoded["id"] = id
+    ws_message = json.dumps(decoded)
 
     loop = new_data.get_loop()
     loop.call_soon_threadsafe(publish_message, ws_message)

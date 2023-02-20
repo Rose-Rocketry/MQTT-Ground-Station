@@ -4,6 +4,7 @@ import Plotly from 'plotly.js-dist-min'
 import type { ChannelData } from '@/protocol';
 
 const plotEl = ref<HTMLElement>()
+const UPDATE_DELAY_MS = 100
 
 const props = defineProps<{
   channelKey: string,
@@ -23,15 +24,17 @@ function getTraces(): Plotly.Data[] {
   })
 }
 
+let datarevision = 0
+
 function getLayout(): Partial<Plotly.Layout> {
-  return {
+  const layout: Partial<Plotly.Layout> = {
     title: props.channel.meta?.name ?? props.channelKey,
-    margin: {
-      l: 40,
-      r: 40,
-      t: 50,
-      b: 40
-    },
+    // margin: {
+    //   l: 80,
+    //   r: 40,
+    //   t: 50,
+    //   b: 40
+    // },
     xaxis: {
       tickangle: 0
     },
@@ -41,17 +44,34 @@ function getLayout(): Partial<Plotly.Layout> {
         ? [props.channel.meta.minimum, props.channel.meta.maximum]
         : undefined,
     },
-    uirevision: 'true' // Keep user zoom levels when updating data
+    uirevision: 'true', // Keep user zoom levels when updating data,
+    datarevision: datarevision++
   }
+
+  if(layout.yaxis?.ticksuffix == undefined && layout.yaxis?.range == undefined){
+    delete layout.yaxis;
+  }
+
+  return layout
 }
 
 onMounted(() => {
   Plotly.newPlot(plotEl.value!, getTraces(), getLayout(), { displayModeBar: false, responsive: true })
 })
 
+let updateIsScheduled = false
+
 watch(props.channel, () => {
-  Plotly.react(plotEl.value!, getTraces(), getLayout())
+  if (!updateIsScheduled) {
+    setTimeout(doUpdate, UPDATE_DELAY_MS)
+    updateIsScheduled = true
+  }
 })
+
+function doUpdate() {
+  Plotly.react(plotEl.value!, getTraces(), getLayout())
+  updateIsScheduled = false
+}
 </script>
 
 <template>
