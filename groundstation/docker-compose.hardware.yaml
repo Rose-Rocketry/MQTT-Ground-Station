@@ -23,5 +23,10 @@ services:
     depends_on:
       xbnet:
         condition: service_healthy
-  # rf-direwolf:
-  #   command: direwolf -c /etc/direwolf.hardware.conf
+  rf:
+    privileged: true
+    cap_add:
+      - CAP_SYS_RAWIO
+    devices: # TODO: Make this more generic, only works on my PC right now
+      - /dev/hackrf-one-3-6
+    build: rf
