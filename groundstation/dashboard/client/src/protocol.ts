@@ -32,7 +32,8 @@ export interface SensorData {
 }
 
 export interface ChannelData {
+  key: string,
   meta?: MetadataChannel,
   timestamps: Date[],
-  series: number[][],
+  series: any[][],
 }

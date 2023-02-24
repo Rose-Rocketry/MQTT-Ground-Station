@@ -186,6 +186,7 @@ function handlePacket(packet: Packet) {
       } else {
         // New channel
         sensor.channelMap.set(ch.key, {
+          key: ch.key,
           meta: ch,
           series: [],
           timestamps: []
@@ -217,6 +218,7 @@ function handlePacket(packet: Packet) {
       let channel = sensor.channelMap.get(key)
       if (!channel) {
         channel = {
+          key,
           timestamps: [],
           series: [],
         }
