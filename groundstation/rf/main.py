@@ -68,7 +68,7 @@ def transmit(message: str):
 
 def main():
     while True:
-        transmit("WB2OSZ>WORLD:,Hello, world!")
+        transmit("WB2OSZ>WORLD:,idk idk A1 B2 C3 D4 E5 F6")
         sleep(PACKET_DELAY)
 
 if __name__ == "__main__":
