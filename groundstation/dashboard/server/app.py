@@ -117,7 +117,7 @@ async def manage_client_thread():
     client.enable_logger(app.logger)
     client.on_message = on_mqtt_message
     client.on_connect = on_mqtt_connect
-    client.connect_async("rsmb")
+    client.connect_async("10.82.104.3")
     client.loop_start()
     yield
     client.loop_stop()
